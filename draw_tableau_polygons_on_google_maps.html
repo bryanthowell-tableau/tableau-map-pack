@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+	<title>Draw Tableau Custom Polygons on Google Maps</title>
+	<style>
+		  body {
+			background-color: #F8F8F8;
+			font-family: sans-serif;
+			font-size: 12pt;
+			padding: 0px;
+			margin: 0px;
+			height: 100%;
+		  }
+		  
+		  html {
+			height: 100%;
+			margin: 0px;
+			padding: 0px
+		  }
+		  
+		  #map-canvas {
+			height: 80%;
+			margin: 0px;
+			padding: 0px
+		  }
+	  
+		h1 {
+			background-color: #666;
+			color: white;
+			font-family: sans-serif;
+			padding: 5px;
+			margin: 0px;
+		}
+	  
+		.body_container {
+			padding-left: 10px;
+			padding-right: 10px;
+		
+		}
+		
+		.overlay {
+			 position: absolute; 
+			 top : 65px;
+			 left : 100px;
+			 background-color : white;
+			 height : 600px;
+			 width : 800px;
+			 border : 1px solid black;
+			 margin: 0px;
+		}
+    </style>
+<meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+
+	
+	<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+	<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?v=3.exp&libraries=drawing"></script>
+	
+	<script>
+
+	var results_array = new Array();
+	var polygon_count = 1;
+	
+	function initialize() {
+	  var mapOptions = {
+		center: new google.maps.LatLng(30.268, -97.743),
+		zoom: 14
+	  };
+
+	  var map = new google.maps.Map(document.getElementById('map-canvas'),
+		mapOptions);
+
+	  var drawingManager = new google.maps.drawing.DrawingManager({
+		drawingMode: google.maps.drawing.OverlayType.POLYGON,
+		drawingControl: true,
+		drawingControlOptions: {
+		  position: google.maps.ControlPosition.TOP_CENTER,
+		  drawingModes: [
+		//	google.maps.drawing.OverlayType.MARKER,
+		//	google.maps.drawing.OverlayType.CIRCLE,
+			google.maps.drawing.OverlayType.POLYGON,
+		//	google.maps.drawing.OverlayType.POLYLINE,
+		//	google.maps.drawing.OverlayType.RECTANGLE
+		  ]
+		},
+		markerOptions: {
+		  icon: 'images/beachflag.png'
+		},
+		circleOptions: {
+		  fillColor: '#ffff00',
+		  fillOpacity: 1,
+		  strokeWeight: 5,
+		  clickable: false,
+		  editable: true,
+		  zIndex: 1
+		}
+	  });
+	  drawingManager.setMap(map);
+	  google.maps.event.addListener(drawingManager, 'overlaycomplete', function (event) {
+		console.log (event.overlay)
+		var lon_lat_array = event.overlay.getPath().getArray();
+		console.log(lon_lat_array);
+		var poly_name = prompt("Give identifier for this polygon (must be unique)","Shape_" + polygon_count);
+		if (poly_name == null) {
+			event.overlay.setMap(null);
+			return;
+		}
+		polygon_count++;
+		for(i=0;i<lon_lat_array.length;i++){
+			complete_results = poly_name + "," + (i+1) + "," + lon_lat_array[i].lng() +  "," + lon_lat_array[i].lat();
+			//console.log( complete_results );
+			results_array.push(complete_results);
+			//console.log(results_array);
+		}
+		});
+	}
+
+	// Initializes the drawing manager
+	google.maps.event.addDomListener(window, 'load', initialize);
+
+	function export_csv(){
+		console.log(results_array);
+		if(!document.getElementById('overlay')){
+			new_div = document.createElement('div');
+			new_div.id = 'overlay';
+			document.body.appendChild(new_div);
+		}
+		$("#overlay").addClass("overlay");
+		$("#overlay").append("<h1>Results</h1>");
+			
+		text_area = document.createElement("textarea");
+		text_area.id = "master_results";
+		text_area.cols = 90;
+		text_area.rows = 30;
+		console.log(text_area);
+		var final_text = "Identifier,Order,Longitude,Latitude\n";
+		for(i=0;i<results_array.length;i++){
+			final_text = final_text + results_array[i] + "\n" ;
+		}
+		$(text_area).text(final_text);
+		$("#overlay").append(text_area);
+		$("#overlay").append( "<div class='body_container'><p align='right'><button onclick='hideOverlay();'>Close</button><br>");
+		
+		$("#overlay").hide();
+
+		
+		$("#overlay").show();
+	}	
+
+	function hideOverlay(){
+		$("#overlay").hide();
+		$("#overlay").html("");
+	}
+
+</script>
+
+</head>
+<body>
+	<h1>Draw Tableau Custom Polygons on Google Maps</h1>
+	<div class='body_container'>
+		<p>Draw your regions on the map. As you complete each region, you'll be asked for a name. This should match up to the identifier in your data. Copy the results to a CSV file for use in blending.
+		<p><button onclick="export_csv();">Open CSV Results</button>
+	</div>
+	
+	<div id="map-canvas"></div>
+
+</body>
+</html>
