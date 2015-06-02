@@ -209,7 +209,7 @@
 		}
 		
 		function finishPolygon() {
-		
+            svg.remove(drawing[drawing.length-1]);
 			// Draw last line, we don't actually save the first vertex as last since tableau completes it automatically
 			line = svg.line( 
 				undo_polygon[ undo_polygon.length - 1][0], 
