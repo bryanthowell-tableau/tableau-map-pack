@@ -138,12 +138,30 @@
 				svg.image(0,0,img.width,img.height, "./" + image_src);
 				
 				$("#image_overlay").click ( drawVertex );
-				
+				$("#image_overlay").mousemove( drawGuideLine );
+                
 				// This disables the right-click menu and instead instigates the finishPolygon function
 				$("#image_overlay").bind("contextmenu",finishPolygon);
 			}
 		}
 		
+        function drawGuideLine(e){
+            var parentOffset = $(this).parent().offset();
+            if(temp_polygon.length > 0){
+                svg.remove(drawing[drawing.length-1]);
+                var relX = e.pageX - parentOffset.left;
+                var relY = e.pageY - parentOffset.top;
+                drawing.push( svg.line( 
+                    undo_polygon[ undo_polygon.length - 1][0] , 
+                    undo_polygon[ undo_polygon.length - 1][1] , 
+                    relX, 
+                    relY, 
+                    {stroke: line_color,strokeWidth: 2} 
+                    ) 
+                );
+            }
+        }
+        
 		function drawVertex(e){
 			var img_overlay = $('#image_overlay');
 			img_height = img_overlay.height();
@@ -299,10 +317,10 @@
 </form>
 <p>
 Select Line Color: <select name='color_select' id='color_select'>
-	<option value='black' selected>Black</option>
+    <option value='yellow' selected>Yellow</option>
+    <option value='black'>Black</option>
 	<option value='red'>Red</option>
 	<option value='blue'>Blue</option>
-	<option value='yellow'>Yellow</option>
 	<option value='white'>White</option>
 	<option value='green'>Green</option>
 </select>
