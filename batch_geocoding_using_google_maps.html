@@ -1,0 +1,514 @@
+
+<html>
+<head>
+	<title>Batch Geocoding Using Google Mapping API</title>
+	<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+	<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js"></script>
+	
+	<style>
+		#status_div {
+			position: absolute;
+			left: 600px;
+			top: 10px;
+			border: 1px solid black;
+			background-color: white;
+			padding: 5px;
+		}
+		
+		#input_div {
+			display: inline-block;
+		}
+		
+		#results_div {
+			display: inline-block;
+		}
+		
+		#processing_errors {
+			font-family: monospace;
+		}
+	
+		h1 {
+			background-color: #666;
+			color: white;
+			font-family: sans-serif;
+			padding: 5px;
+			margin: 0px;
+		}
+		
+		body {
+			background-color: #F8F8F8;
+			font-family: sans-serif;
+			font-size: 12pt;
+			padding: 0px;
+			margin: 0px;
+		}
+		
+		.body_container {
+			padding-left: 10px;
+			padding-right: 10px;
+		
+		}
+		
+		select {
+			font-family: sans-serif;
+			font-size: 12pt;
+			
+		}
+		
+		.overlay {
+			 position: absolute; 
+			 top : 65px;
+			 left : 100px;
+			 background-color : white;
+			 height : 600px;
+			 width : 800px;
+			 border : 1px solid black;
+			 margin: 0px;
+		}
+		
+
+	</style>
+	
+	<script>
+
+		// Two Google Maps API objects for reuse throughout
+		var geocoder = new google.maps.Geocoder();
+		var directionsService = new google.maps.DirectionsService();
+		
+		// Global results arrays
+		var lines = new Array(); // Hold each of the initial addresses to geocode 
+		var ordered_results = new Array(); // Hold results lines 
+		var unprocessed_results = new Array(); // Hold any lines where no result came back from Google API
+		
+		var total_count;
+		var j =  0;
+		var consecutive_over_quota = 0;
+		
+		var child_windows = new Array();
+		var child_windows_opened = 0;
+		var child_windows_finished = 0;
+		
+		/* 
+			Google Geocoding API gets really slow after 200 addresses, but that seems to be reset for each page load. To get around this, the master will open the correct number of iframes in parallel and trigger them off.
+		*/
+		
+		// Optimization settings
+		var file_name = "batch_geocoding_using_google_maps.html"; // Necessary to open the child iframes
+		var max_lines_for_performance = 3000; // Limit of lines per batch
+		var split_count = 150; // Number of addresses to run in each child window
+		
+		var mode = 'geocode'; // Processing mode switch
+		var mode_headers = {};
+			mode_headers['geocode'] = "address|google_address_match|lon|lat";
+			mode_headers['directions'] = "start_address|end_address|start_lon|start_lat|end_lon|end_lat|distance_miles|duration_minutes";
+		var master_or_child = 'master'; // Switch so iframes behave differently
+		
+		// Looks for child=true flag is present
+		function detectChild(){	
+			if( window.location.search.indexOf('?child=true') >= 0 ){
+				master_or_child = 'child';
+			}
+		}
+		
+		
+		function launchProcess() {
+			j = 0;
+			lines = processList();
+			consecutive_over_quota = 0;
+			child_windows_opened = 0;
+			child_windows_finished = 0;
+			
+			// Pop up warning if over max
+			if(lines.length > max_lines_for_performance) {
+				alert("You have entered " + lines.length + " lines\nPlease reduce to 3000 or less and rerun.");
+				return false;
+			}
+			
+			// Split them up and open new windows with child parameter
+			if(master_or_child == 'master'){
+				num_children = lines.length / split_count;
+				num_children = Math.ceil(num_children); 
+				//alert("Need to run " + num_children + " windows for max efficiency.\n Once finished, they will close and results will be in original window.");
+				// Open Iframes for same effect
+				for(i=0;i<num_children;i++){
+						child_windows[i] = document.createElement('iframe');
+						child_windows[i].src = file_name + '?child=true';
+						document.body.appendChild(child_windows[i]);
+						$( child_windows[i]).hide();
+				}
+				
+			}
+		
+			// Reset unprocessed and hide
+			unprocessed_results = new Array();
+			ordered_results = new Array();
+			$("#processing_errors").hide();
+			$("#status_div").show();
+			
+			$("#processing_errors").html("<p style='font-family: serif;'>Unprocessed Addresses<p>");
+			
+			if(master_or_child == 'child'){
+				// Fire off first address to be processed, each returned result will trigger next via event handler
+				processAddress(ordered_results,unprocessed_results);
+			}
+			
+		}
+		
+		// Grab initial list of all addresses, trim it down
+		function processList() {
+			var output_array = new Array();
+			var input_text = $("#address_entry").val() ;
+			var lines = new Array();
+			
+			lines = input_text.split("\n");
+			$("#results").val("");
+			for(i=0;i<lines.length;i++){
+				// Ignore blank lines
+				
+				if(lines[i].trim().length > 0){
+					output_array.push( lines[i].trim() );
+				}
+			}
+			total_count = output_array.length; // Set global total_count
+			// Smaller split if less than the upper bound for Google API
+			if (total_count < split_count){
+				split_count = 25;
+			}
+			return output_array;
+		}
+		
+		// Create a custom event handler for every returned address
+		// On return of first address, fire off the next address
+		$( document ).on( 
+			"addressReturn", 
+			{count : j},  
+			function (event) {
+				
+				//Increment j
+				console.log("Address Return event on Address " + j);
+				
+				// Update on screen counter
+				$("#status_div").html("<p>" + j + " of " + total_count + " processed");
+
+				if( j == total_count ){
+					displayResults();
+					$("#status_div").html("<p>Processing of " + total_count + " completed <br> with " + unprocessed_results.length + " errors");
+					
+					//Put errors in the processing_errors div if there were any
+					if(unprocessed_results.length > 0){
+						for(i=0;i<unprocessed_results.length;i++){
+							$("#processing_errors").append ( unprocessed_results[i] + "<br>" );
+							
+						}
+						$("#processing_errors").show();
+					}
+					
+				}
+				else{
+					setTimeout( function() { processAddress(ordered_results,unprocessed_results); } , 750 + (consecutive_over_quota*50));
+				}
+			}
+		);
+		
+		$( document ).on (
+			"windowOpened",
+			{total_opened : child_windows_opened},
+			function (event) {
+				child_windows_opened++;
+				num_children = child_windows.length;
+				/*
+				// This is where everything happens after all the windows are loaded
+				*/
+				if(child_windows_opened == num_children){
+					
+					// Put all the results in the child windows
+					remaining_lines = lines.length;
+					for(i=0;i<num_children;i++){
+						child_input = $(child_windows[num_children-1-i].contentDocument).contents().find("#address_entry");
+						
+						if(remaining_lines < split_count){
+							limit = (i*split_count)+remaining_lines;
+						}
+						else {
+							limit = (i+1)*split_count;
+						}
+						
+						for(var j=0+(i*split_count);j<limit;j++){
+							child_input.val( child_input.val() + lines[j] + "\n");
+						}
+						
+						remaining_lines = remaining_lines - split_count;
+					}
+					
+					// Fire off the launch process on the children
+					for(i=0;i<num_children;i++){
+						child_windows[i].contentDocument.launch();
+					}
+				}
+			}
+		);
+		
+		// Listener on the master that is pinged every time an iframe finishes. Once all are finished, it grabs them all and combines for the final result
+		$ ( document ).on(
+			"windowFinished",
+			{total_opened : child_windows_opened},
+			function (event){
+				child_windows_finished++;
+				
+				if(child_windows_finished == child_windows_opened){
+					num_children = child_windows.length;
+										
+					var results_text = mode_headers[mode] + "\n";
+					for(i=0;i<num_children;i++){
+						child_results = $(child_windows[i].contentDocument).contents().find("#results");
+						results_text = results_text + child_results.val();
+					}
+					$("#master_results").text(results_text);
+					$("#master_results_div").show();
+				}
+			}
+		);
+	
+		$( document ).on (
+			"incrementMasterCounter",
+			{master_counter: j},
+			function (event){
+				j++;
+				$("#status_div").html("<p>" + j + " of " + total_count + " processed");
+				if( j == total_count ){
+					displayResults();
+					$("#status_div").html("");
+					$("#status_div").hide();
+					//$("#status_div").html("<p>Processing of " + total_count + " completed");
+					//$("#results_div").show();
+				}
+			}
+		);
+	
+		function processAddress (o_results, u_results) {
+			// Need to wrap the whole geocoder in ANOTHER function so that the address can be assigned at the call time and brought as a value in the callback function in the geocoder callback (JS callback and scope MADNESS)
+			function geocodeAddress(address,order){
+				var newDate = new Date();
+				console.log("Geocode launched: " + address + " at " + newDate.toLocaleTimeString());
+				geocoder.geocode( 
+					{'address' : address}, 
+					function(results, status){
+						if(status == google.maps.GeocoderStatus.OK){
+							if(consecutive_over_quota > 0) {consecutive_over_quota = consecutive_over_quota-.25; }
+							console.log(results);
+							output_line = address + "|" + results[0].formatted_address + "|" + results[0].geometry.location.lng().toFixed(4) + "|" + results[0].geometry.location.lat().toFixed(4);
+							//$("#results").val( $("#results").val() + output_line  + "\n");
+							o_results[order] = output_line;
+							// Display result in results window
+							$("#results").val( $("#results").val() + output_line + "\n");
+							j++;
+							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
+							$( document ).trigger( "addressReturn");
+						}
+						// Add a two-second delay and resend request
+						else if (status == "OVER_QUERY_LIMIT"){
+							consecutive_over_quota++;
+							delay_time = 1500 + (consecutive_over_quota*500);
+							console.log("Request " + j + " over query limit. Delaying " + delay_time + " milliseconds and retrying");
+							setTimeout( function () { $( document ).trigger( "addressReturn"); }, delay_time);
+						}
+						else{
+							console.log ( "Error with geocoding request: " + status);
+							o_results[order] = address + "|";
+							j++;
+							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
+							$( document ).trigger( "addressReturn");
+							u_results.push(address);
+							
+						}
+					} 
+				);
+			};	
+			
+
+			function getDirectionsBtwAddresses(address_pair,order){
+				var dir_request = {
+					origin: address_pair[0],
+					destination : address_pair[1],
+					travelMode: google.maps.TravelMode.DRIVING,
+					unitSystem: google.maps.UnitSystem.IMPERIAL
+				};
+				directionsService.route(
+					dir_request,
+					function(results, status){
+						if(status == google.maps.DirectionsStatus.OK){
+							if(consecutive_over_quota > 0) {consecutive_over_quota = consecutive_over_quota-.25; }
+							console.log(results.routes[0]);
+							// Only one leg with no waypoints defined, which we don't
+							first_leg = results.routes[0].legs[0];
+							
+							distance = first_leg.distance.value; // in meters
+							distance_miles = distance * .000621371;
+							
+							duration = first_leg.duration.value; // in seconds
+							duration_mins = duration / 60;
+							
+							start_lon = first_leg.start_location.lng();
+							start_lat = first_leg.start_location.lat();
+							
+							end_lon = first_leg.end_location.lng();
+							end_lat = first_leg.end_location.lat();
+												
+							output_line = address_pair[0] + "|" + address_pair[1] + "|" + start_lon.toFixed(4) + "|" + start_lat.toFixed(4) + "|" + end_lon.toFixed(4) + "|" + end_lat.toFixed(4) + "|" + distance_miles.toFixed(4) + "|" + duration_mins.toFixed(4);
+							//$("#results").val( $("#results").val() + final_output);
+							o_results[order] = output_line;
+							j++;
+							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
+							$( document ).trigger( "addressReturn");
+							
+						}
+						// Add a two-second delay and resend request
+						else if (status == "OVER_QUERY_LIMIT"){
+							consecutive_over_quota++;
+							delay_time = 1500 + (consecutive_over_quota*500);
+							console.log("Request " + j + " over query limit. Delaying " + delay_time + " milliseconds and retrying");
+							setTimeout( function () { $( document ).trigger( "addressReturn"); }, delay_time);
+						}
+						
+						else {
+							console.log ( "Error with geocoding request: " + status);
+							o_results[order] = address_pair[0] + "|" + address_pair[1] + "|";
+							j++;
+							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
+							$( document ).trigger( "addressReturn");
+							u_results.push(address_pair[0] + "|" + address_pair[1]);
+						}
+					}	
+				);
+			};
+			
+			// Actual meat of the processAddress, depending on the mode
+			switch (mode) {
+				// Geocoding rather than directions
+				case 'geocode':
+					//console.log(lines[i]);
+					// j being the global counter
+					geocodeAddress(lines[j],j); //  Scope jack function -- by running this in the external function we can pass the original address values
+				break;
+				
+				// Get distance and drive time for the two places. Grab Lon / Lat too if possible. 
+				case 'directions':
+					// Split into two from comma
+					address_pair = lines[j].split("|");
+					// Only run if there are two listed points in the line
+					if(address_pair.length == 2){
+						getDirectionsBtwAddresses( address_pair, j );
+					}	
+				break;
+			}
+			//console.log(results);
+			return o_results;
+		};
+	
+		// Tells the master that the child iframe has finished, also logs everything to the console for checking
+		function displayResults(){
+			console.log(ordered_results);
+			console.log(unprocessed_results);
+			if(master_or_child == 'child'){
+				window.parent.document.processingFinished();
+			}
+		}
+
+		function hideOverlay(){
+			$("#master_results_div").hide();
+			//$("#overlay").html("");
+		}
+			
+		function modeChange(){
+			mode = $("#mode_select").val(); // Set the global mode
+		}
+		
+		/*
+			All of the prep work when the master or the child loads
+		*/
+		$(document).ready( 
+			function() {
+				// Sets the children iframe into child mode
+				detectChild();
+				
+				// Add launchProcess to DOM for the children so it can be launched by parent
+				document.launch = launchProcess;
+				
+				//  Allows children to ping master when they have opened successfully
+				document.windowLoaded = function (){ $(document).trigger( "windowOpened"); };
+				
+				//  Allows children to ping master when they have completed
+				document.processingFinished = function () { $(document).trigger("windowFinished"); };
+				
+				// Allows children to ping master when a single address returns successfully
+				document.childAddressReturned = function(){ $(document).trigger("incrementMasterCounter"); }
+				
+				// Set default mode to geocode
+				$("#mode_select").val('geocode');
+				// Clear results
+				$("#results").val("");
+				// Onchange of the select box set the mode
+				$("#mode_select").change(modeChange);
+				
+				// Mode headers (maybe hide this altogether until the end?
+				$("#headers").text("address|google_address_match|lon|lat");
+				
+				// Hide divs
+				$("#processing_errors").hide();
+				$("#status_div").hide();
+				if( master_or_child == 'master'){ $("#results_div").hide(); }
+				$("#master_results_div").hide();
+				
+				// Ping the parent when the child iframe load completely per jQuery
+				if( master_or_child == 'child'){
+					window.parent.document.windowLoaded();
+				}
+			}
+		);
+		
+
+		
+		
+	</script>
+	
+</head>
+<body>
+	<h1>Batch Geocoding Using Google Mapping API</h1>
+	<div class='body_container'>
+	<p>Use this tool to find the longitude and latitude of up to 3000 addresses at a time in approximately 5 minutes, or the driving distance and time between two addresses.  
+	<p>Mode Description:
+	<p><ul>
+			<li>Single Addresses: takes a list of addresses, one per line</li>
+			<li>Shorted Driving Distance + Estimated Time: Takes a list of address pairs, two per line, separated by |</li>
+		</ul>
+	<p>Choose Mode: 
+		<select name='mode_select' id='mode_select'>
+			<option value='geocode' selected>Geocode Single Addresses</option>
+			<option value='directions'>Shortest Driving Distance + Estimated Time</option>
+		</select>
+	<div id='wrapper_div'>
+		<div id='input_div'><b>Input Addresses Below</b><p>&nbsp;</p><textarea id='address_entry' name='address_entry' rows=20 cols=90></textarea></div>
+		<div id='results_div'><b>Geocoding Results</b><p id='headers'></p><textarea id='results' name='results' rows=20 cols=75></textarea></div>
+	</div>
+	<p><button onclick='launchProcess();'>Geocode My Addresses</button>
+	<div id='status_div'>
+		
+	</div>
+	
+	<div id='processing_errors'>
+		<p style='font-family: serif;'>Unprocessed Addresses
+		<p>
+	</div>
+	
+	<div id='master_results_div' class='overlay'>
+		<h1>Results</h1>	
+		<div style='padding-left:10px;padding-right:10px;'>
+			<p>Copy into a text file or Excel. Each item is separated by |
+			<textarea id='master_results' name='master_results' rows=25 cols=90></textarea>
+			<p align='right'><button onclick='hideOverlay();'>Close</button><br>
+		</div>
+	</div>
+	
+	</div>
+</body>
+</html>
