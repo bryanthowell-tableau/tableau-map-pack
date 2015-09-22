@@ -108,6 +108,10 @@
 			if( window.location.search.indexOf('?child=true') >= 0 ){
 				master_or_child = 'child';
 			}
+            
+            if (window.location.search.indexOf('&directions=true') >= 0){
+                mode = 'directions';
+            }
 		}
 		
 		
@@ -132,7 +136,11 @@
 				// Open Iframes for same effect
 				for(i=0;i<num_children;i++){
 						child_windows[i] = document.createElement('iframe');
-						child_windows[i].src = file_name + '?child=true';
+                        new_window_uri = '?child=true';
+                        if(mode == 'directions'){
+                            new_window_uri += '&directions=true';
+                        }
+						child_windows[i].src = new_window_uri;
 						document.body.appendChild(child_windows[i]);
 						$( child_windows[i]).hide();
 				}
@@ -284,7 +292,7 @@
 				}
 			}
 		);
-	
+	        
 		function processAddress (o_results, u_results) {
 			// Need to wrap the whole geocoder in ANOTHER function so that the address can be assigned at the call time and brought as a value in the callback function in the geocoder callback (JS callback and scope MADNESS)
 			function geocodeAddress(address,order){
@@ -355,9 +363,9 @@
 							end_lat = first_leg.end_location.lat();
 												
 							output_line = address_pair[0] + "|" + address_pair[1] + "|" + start_lon.toFixed(4) + "|" + start_lat.toFixed(4) + "|" + end_lon.toFixed(4) + "|" + end_lat.toFixed(4) + "|" + distance_miles.toFixed(4) + "|" + duration_mins.toFixed(4);
-							//$("#results").val( $("#results").val() + final_output);
+							$("#results").val( $("#results").val() + output_line + "\n");
 							o_results[order] = output_line;
-							j++;
+                            j++;
 							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
 							$( document ).trigger( "addressReturn");
 							
@@ -373,10 +381,10 @@
 						else {
 							console.log ( "Error with geocoding request: " + status);
 							o_results[order] = address_pair[0] + "|" + address_pair[1] + "|";
-							j++;
 							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
 							$( document ).trigger( "addressReturn");
 							u_results.push(address_pair[0] + "|" + address_pair[1]);
+                            j++;
 						}
 					}	
 				);
@@ -386,6 +394,7 @@
 			switch (mode) {
 				// Geocoding rather than directions
 				case 'geocode':
+                    console.log('Regular address geocode mode');
 					//console.log(lines[i]);
 					// j being the global counter
 					geocodeAddress(lines[j],j); //  Scope jack function -- by running this in the external function we can pass the original address values
@@ -394,7 +403,10 @@
 				// Get distance and drive time for the two places. Grab Lon / Lat too if possible. 
 				case 'directions':
 					// Split into two from comma
-					address_pair = lines[j].split("|");
+                    console.log('Directions between two addresses mode');
+					console.log('j is ' + j + ' right now');
+                    address_pair = lines[j].split("|");
+                    
 					// Only run if there are two listed points in the line
 					if(address_pair.length == 2){
 						getDirectionsBtwAddresses( address_pair, j );
