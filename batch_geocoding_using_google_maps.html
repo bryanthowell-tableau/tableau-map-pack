@@ -70,7 +70,10 @@
 	</style>
 	
 	<script>
-
+        var isChrome = !!window.chrome
+        if (isChrome){
+            alert('Alert Chrome User:\nIf you are running this from your local computer, Chrome will not work.\n\n Please use Firefox or IE. \n\nIf you host the page on a web server, it should work.');
+        }
 		// Two Google Maps API objects for reuse throughout
 		var geocoder = new google.maps.Geocoder();
 		var directionsService = new google.maps.DirectionsService();
@@ -93,13 +96,14 @@
 		*/
 		
 		// Optimization settings
-		var file_name = "batch_geocoding_using_google_maps.html"; // Necessary to open the child iframes
+		var file_name = "batch_geocoding_using_google_maps_wip.html"; // Necessary to open the child iframes
 		var max_lines_for_performance = 3000; // Limit of lines per batch
 		var split_count = 150; // Number of addresses to run in each child window
 		
 		var mode = 'geocode'; // Processing mode switch
 		var mode_headers = {};
 			mode_headers['geocode'] = "address|google_address_match|lon|lat";
+            mode_headers['reverse_geocode'] = "lon,lat|google_address_match|lon|lat";
 			mode_headers['directions'] = "start_address|end_address|start_lon|start_lat|end_lon|end_lat|distance_miles|duration_minutes";
 		var master_or_child = 'master'; // Switch so iframes behave differently
 		
@@ -111,6 +115,10 @@
             
             if (window.location.search.indexOf('&directions=true') >= 0){
                 mode = 'directions';
+            }
+            
+            if (window.location.search.indexOf('&reverse=true') >= 0){
+                mode = 'reverse_geocode';
             }
 		}
 		
@@ -139,6 +147,9 @@
                         new_window_uri = '?child=true';
                         if(mode == 'directions'){
                             new_window_uri += '&directions=true';
+                        }
+                        if(mode == 'reverse_geocode'){
+                            new_window_uri += '&reverse=true';
                         }
 						child_windows[i].src = new_window_uri;
 						document.body.appendChild(child_windows[i]);
@@ -332,6 +343,43 @@
 					} 
 				);
 			};	
+            
+            function reverseGeocodeAddress(lonlat,order){
+                var loc = {lng: parseFloat(lonlat[0]), lat: parseFloat(lonlat[1])};
+				geocoder.geocode( 
+					{'location' : loc}, 
+					function(results, status){
+						if(status == google.maps.GeocoderStatus.OK){
+							if(consecutive_over_quota > 0) {consecutive_over_quota = consecutive_over_quota-.25; }
+							console.log(results);
+							output_line = lonlat[0] + "," + lonlat[1] + "|" + results[0].formatted_address + "|" + results[0].geometry.location.lng().toFixed(4) + "|" + results[0].geometry.location.lat().toFixed(4);
+							//$("#results").val( $("#results").val() + output_line  + "\n");
+							o_results[order] = output_line;
+							// Display result in results window
+							$("#results").val( $("#results").val() + output_line + "\n");
+							j++;
+							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
+							$( document ).trigger( "addressReturn");
+						}
+						// Add a two-second delay and resend request
+						else if (status == "OVER_QUERY_LIMIT"){
+							consecutive_over_quota++;
+							delay_time = 1500 + (consecutive_over_quota*500);
+							console.log("Request " + j + " over query limit. Delaying " + delay_time + " milliseconds and retrying");
+							setTimeout( function () { $( document ).trigger( "addressReturn"); }, delay_time);
+						}
+						else{
+							console.log ( "Error with geocoding request: " + status);
+							o_results[order] = address + "|";
+							j++;
+							window.parent.document.childAddressReturned(); // trigger event handler for master counter on parent
+							$( document ).trigger( "addressReturn");
+							u_results.push(address);
+							
+						}
+					} 
+				);
+			};
 			
 
 			function getDirectionsBtwAddresses(address_pair,order){
@@ -399,6 +447,14 @@
 					// j being the global counter
 					geocodeAddress(lines[j],j); //  Scope jack function -- by running this in the external function we can pass the original address values
 				break;
+                
+                case 'reverse_geocode':
+                    console.log('Reverse geocode mode on Lon,Lat pairs');
+                    lonlat = lines[j].split(",");
+					//console.log(lines[i]);
+					// j being the global counter
+					reverseGeocodeAddress(lonlat,j); //  Scope jack function -- by running this in the external function we can pass the original address values
+				break;
 				
 				// Get distance and drive time for the two places. Grab Lon / Lat too if possible. 
 				case 'directions':
@@ -433,6 +489,7 @@
 			
 		function modeChange(){
 			mode = $("#mode_select").val(); // Set the global mode
+            console.log("MOde set to " + mode);
 		}
 		
 		/*
@@ -496,6 +553,7 @@
 	<p>Choose Mode: 
 		<select name='mode_select' id='mode_select'>
 			<option value='geocode' selected>Geocode Single Addresses</option>
+            <option value='reverse_geocode'>Reverse Geocode Lon,Lat Pairs</option>
 			<option value='directions'>Shortest Driving Distance + Estimated Time</option>
 		</select>
 	<div id='wrapper_div'>
